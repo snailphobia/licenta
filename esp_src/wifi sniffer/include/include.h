@@ -26,10 +26,12 @@
 #define I2C_SLAVE_SDA       21      // I2C SDA pin (slaves only)
 #define I2C_SLAVE_SCL       22      // I2C SCL pin (slaves only)
 #define I2C_FREQ            200000  // I2C frequency (200kHz)
+#define I2C_BASE_ADDR       0x64
 
 #define CMD_CHANNEL_SET     0x01
-#define CMD_CHANNEL_REQ     0x02
+#define CMD_STATUS_REQ      0x02
 #define CMD_DATA_REQ        0x03
+#define MAX_I2C_PACKET      32
 
 typedef struct {
     uint32_t magic_number;   // magic number
@@ -58,7 +60,7 @@ typedef struct {
 /**
  * extern globals for sharing across files
  */
-extern QueueHandle_t wifi_queue;
+extern QueueHandle_t packet_queue;
 extern SemaphoreHandle_t buffer_mutex;
 extern uint32_t packet_count;
 
