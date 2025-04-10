@@ -43,6 +43,7 @@ void i2c_request_handler() {
       }
       xSemaphoreGive(buffer_mutex);
     }
+
   }
 }
 
