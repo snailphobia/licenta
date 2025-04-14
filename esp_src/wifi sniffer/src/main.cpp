@@ -3,6 +3,43 @@
 // Global variables
 QueueHandle_t packet_queue;
 static bool led_state = false;
+static int timer_quant = 0;
+static int last_timer_val = 0;
+static state_t current_state = STATE_WAIT;
+
+#define TIMER_TO_MS(x) ((x) / portTICK_PERIOD_MS)
+
+
+static void state_change(state_t new_state) {
+  // Change the state of the device
+  if (new_state == STATE_LISTENER) {
+    Serial.println("Switching to LISTENER mode");
+    led_state = false;
+  } else if (new_state == STATE_WRITER) {
+    Serial.println("Switching to WRITER mode");
+    led_state = true;
+  }
+}
+
+static void reset_timer() {
+  // Reset the timer
+  timer_quant = 0;
+  last_timer_val = 0;
+  Serial.println("Timer reset");
+}
+
+
+static void task_runner() {
+  int current_time_ms = TIMER_TO_MS(xTaskGetTickCount());
+  int diff = current_time_ms - last_timer_val;
+  
+  timer_quant += diff;
+  
+}
+
+static void run_writer_task() {
+  
+}
 
 void setup() {
   // Initialize serial for debugging

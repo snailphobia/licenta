@@ -22,7 +22,7 @@ void wifi_sniffer_set_channel(uint8_t channel) {
     Serial.println("Invalid channel, must be between 1 and 13");
     return;
   }
-  
+
   esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
   Serial.printf("Changed to channel %d\n", channel);
 }

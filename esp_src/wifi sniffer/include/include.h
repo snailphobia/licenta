@@ -33,6 +33,8 @@
 #define CMD_DATA_REQ        0x03
 #define MAX_I2C_PACKET      32
 
+#define MAX_QUANT           500     // 500ms
+
 typedef struct {
     uint32_t magic_number;   // magic number
     uint16_t version_major;  // major version number
@@ -56,6 +58,12 @@ typedef struct {
     uint16_t length;
     uint8_t payload[MTU];
 } wifi_packet_t;
+
+typedef enum {
+    STATE_LISTENER,
+    STATE_WRITER,
+    STATE_WAIT
+} state_t;
 
 /**
  * extern globals for sharing across files
