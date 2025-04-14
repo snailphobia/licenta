@@ -16,6 +16,9 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
+// #define COMM
+#define MONITOR
+
 #define MTU                 1500
 #define QUEUE_SIZE          100
 
@@ -65,6 +68,7 @@ typedef enum {
     STATE_WAIT
 } state_t;
 
+
 /**
  * extern globals for sharing across files
  */
@@ -88,7 +92,7 @@ void initialize_pcap_file(void);
 /**
  * Functions defined in i2c_line_comms.cpp
  */
-void i2c_init(uint8_t address);
+void i2c_slave_init(uint8_t address);
 void i2c_request_handler(void);
 void i2c_receive_handler(int byte_count);
 void store_packet_to_buffer(wifi_packet_t *pkt);

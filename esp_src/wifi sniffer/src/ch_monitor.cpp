@@ -2,6 +2,8 @@
 
 uint32_t packet_count = 0;
 
+#ifdef MONITOR
+
 void wifi_sniffer_init() {
   Serial.println("Initializing WiFi in promiscuous mode");
 
@@ -63,3 +65,5 @@ void packet_writer_task(void *pvParameter) {
     }
   }
 }
+
+#endif // MONITOR
