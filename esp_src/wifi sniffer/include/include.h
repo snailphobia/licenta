@@ -16,6 +16,18 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
+#include "lwip/sockets.h"
+#include "lwip/dns.h"
+#include "lwip/netdb.h"
+#include "lwip/igmp.h"
+
+#include "soc/rtc_periph.h"
+#include "driver/spi_slave.h"
+#include "esp_log.h"
+#include "driver/gpio.h"
+#include "driver/uart.h"
+#include "driver/spi_master.h"
+
 // #define COMM
 #define MONITOR
 
@@ -23,7 +35,7 @@
 #define QUEUE_SIZE          100
 
 #define DEVICE_ID           0       // 0=master, 1-127=slave ID
-#define WIFI_CHANNEL        1       // Channel this node will monitor (ignored on master)
+#define WIFI_CHANNEL        7       // Channel this node will monitor (ignored on master)
 #define I2C_MASTER_SDA      21      // I2C SDA pin (master only)
 #define I2C_MASTER_SCL      22      // I2C SCL pin (master only)
 #define I2C_SLAVE_SDA       21      // I2C SDA pin (slaves only)
