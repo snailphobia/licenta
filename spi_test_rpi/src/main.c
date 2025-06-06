@@ -32,6 +32,8 @@
 #define GPIO_SCLK 18
 #define GPIO_CS 5
 
+#define SPI_BUF_SIZE    129
+
 static const char *TAG = "SPI_Slave_Receiver_Test";
 
 void app_main(void)
@@ -44,20 +46,22 @@ void app_main(void)
         .sclk_io_num=GPIO_SCLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
+        .max_transfer_sz = 4096,
     };
 
     spi_slave_interface_config_t slvcfg={
         .mode=0,
         .spics_io_num=GPIO_CS,
-        .queue_size=1,
+        .queue_size=3,
         .flags=0,
         .post_setup_cb=NULL,
         .post_trans_cb=NULL
     };
 
-    gpio_set_pull_mode(GPIO_MOSI, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(GPIO_SCLK, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(GPIO_CS, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(GPIO_MOSI, GPIO_PULLUP_ENABLE);
+    gpio_set_pull_mode(GPIO_MISO, GPIO_PULLUP_ENABLE);
 
     esp_err_t ret;
     ret = spi_slave_initialize(VSPI_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
@@ -68,18 +72,21 @@ void app_main(void)
         ESP_LOGI(TAG, "VSPI Slave Initialized Successfully");
     }
 
-    WORD_ALIGNED_ATTR uint8_t recvbuf[4] = {0}; // Small buffer for 1 byte + alignment
-    WORD_ALIGNED_ATTR uint8_t sendbuf[4] = {'H', 'e', 'l', 'p'}; // Send 'H' as first byte
+    // WORD_ALIGNED_ATTR uint8_t recvbuf[4] = {0}; // Small buffer for 1 byte + alignment
+    char *recvbuf = spi_bus_dma_memory_alloc(VSPI_HOST, SPI_BUF_SIZE, 0);
+    // WORD_ALIGNED_ATTR uint8_t sendbuf[4] = {'H', 'e', 'l', 'p'}; // Send 'H' as first byte
+    char *sendbuf = spi_bus_dma_memory_alloc(VSPI_HOST, SPI_BUF_SIZE, 0);
+    snprintf(sendbuf, SPI_BUF_SIZE, "Help me please");
     spi_slave_transaction_t t;
 
     while (1)
     {
         // Clear buffers
-        memset(recvbuf, 0, sizeof(recvbuf));
+        memset(recvbuf, -1, sizeof(SPI_BUF_SIZE));
         memset(&t, 0, sizeof(t));
         
         // Prepare transaction for exactly 1 byte
-        t.length = 4 * 8; // 1 byte = 8 bits
+        t.length = 40 * 8; // 1 byte = 8 bits
         t.rx_buffer = recvbuf;
         t.tx_buffer = sendbuf;
 
