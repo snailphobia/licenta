@@ -19,7 +19,7 @@ static void print_packet_info(wifi_packet_t *pkt) {
   // Optional: Print first few bytes of payload in hex
   Serial.print("Data: ");
   int print_len = (pkt->length > 16) ? 16 : pkt->length;
-  for (int i = 0; i < print_len; i++) {
+  for (int i = 0; i < print_len; i++) { 
     Serial.printf("%02X ", pkt->payload[i]);
   }
   if (pkt->length > 16) Serial.print("...");
@@ -27,46 +27,54 @@ static void print_packet_info(wifi_packet_t *pkt) {
 }
 
 static void packet_monitor_task() {
-  wifi_packet_t pkt;
+  wifi_packet_t *pkt;
   static unsigned long last_stats = 0;
   static uint32_t packets_this_second = 0;
-  
-  // Check for new packets (non-blocking)
+
   while (xQueueReceive(packet_queue, &pkt, 0) == pdTRUE) {
+    if (!pkt) continue;
+
+    // … your safety checks, print_packet_info(), etc …
+    print_packet_info(pkt);
     packets_this_second++;
-    
-    // Print detailed packet info
-    print_packet_info(&pkt);
-    
-    // Create structured SPI packet for WiFi data
+    // 1) Declare your SPI packet here:
     spi_packet_t spi_pkt = {0};
-    spi_pkt.magic = SPI_MAGIC;
-    spi_pkt.type = SPI_DATA_PKT;  // Use proper packet type from enum
-    spi_pkt.seq = 0;  // Will be handled by SPI layer
-    
-    // Pack WiFi packet data into SPI payload
+    spi_pkt.magic      = SPI_MAGIC;
+    spi_pkt.type       = SPI_DATA_PKT;
+    spi_pkt.seq        = 0;
+
     uint8_t *payload = spi_pkt.payload;
-    payload[0] = 0x02; // WiFi packet type identifier
+    payload[0] = 0x02;
     payload[1] = DEVICE_ID;
     payload[2] = WIFI_CHANNEL;
-    payload[3] = (pkt.length >> 8) & 0xFF; // Length high byte
-    payload[4] = pkt.length & 0xFF;        // Length low byte
-    
-    // Copy timestamp (8 bytes total)
-    memcpy(&payload[5], &pkt.ts_sec, 4);
-    memcpy(&payload[9], &pkt.ts_usec, 4);
-    
-    // Copy WiFi packet payload (remaining space in SPI payload)
-    uint16_t wifi_data_space = SPI_MAX_PAYLOAD - 13; // Space after header info
-    uint16_t copy_len = (pkt.length < wifi_data_space) ? pkt.length : wifi_data_space;
-    memcpy(&payload[13], pkt.payload, copy_len);
-    
-    // Set payload length and calculate checksum will be done by create_packet or internally
-    spi_pkt.payload_len = 13 + copy_len;  // Header + WiFi data
-    spi_pkt.checksum = 0;  // Will be calculated by the SPI layer
-    
-    // Add structured packet to SPI queue
-    spi_add_packet(&spi_pkt);
+    payload[3] = (pkt->length >> 8) & 0xFF;
+    payload[4] = pkt->length       & 0xFF;
+
+    memcpy(&payload[5], &pkt->ts_sec, 4);
+    memcpy(&payload[9], &pkt->ts_usec,4);
+
+    uint16_t wifi_data_space = SPI_MAX_PAYLOAD - 13;
+    uint16_t copy_len =
+      pkt->length < wifi_data_space ? pkt->length : wifi_data_space;
+
+    if (copy_len > 0) {
+      memcpy(&payload[13], pkt->payload, copy_len);
+      spi_pkt.payload_len = 13 + copy_len;
+    } else {
+      spi_pkt.payload_len = 13;
+    }
+
+    spi_pkt.checksum = 0;
+
+    // 2) Only call once, and pass a real address
+    Serial.println("Adding to SPI queue…");
+    if (!spi_add_packet(&spi_pkt)) {
+      Serial.println("ERROR: SPI queue full or uninitialized");
+    } else {
+      Serial.println("Added to SPI queue");
+    }
+
+    free(pkt);
   }
   
   // Print statistics every second
@@ -146,7 +154,8 @@ static void packet_monitor_task() {
         break;
         
       default:
-        Serial.printf("Unknown command from master: 0x%02X\n", cmd_type);
+        if (cmd_type != 0x02)
+          Serial.printf("Unknown command from master: 0x%02X\n", cmd_type);
         break;
     }
   }
@@ -156,14 +165,13 @@ static void packet_monitor_task() {
 
 void setup() {
   // Power management
+  Serial.begin(115200);
+  delay(1000);
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
   setCpuFrequencyMhz(80);
-  
-  delay(1000);
-  Serial.begin(115200);
   Serial.println("\n=== ESP32 WiFi Packet Monitor ===");
   Serial.printf("Device ID: %d, Channel: %d\n", DEVICE_ID, WIFI_CHANNEL);
-
+  
 #ifdef MONITOR
 
   // Initialize SPI protocol first
@@ -187,19 +195,24 @@ void setup() {
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-  ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(20));
-  ESP_ERROR_CHECK(esp_wifi_start());
+  // ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(20));
+  // ESP_ERROR_CHECK(esp_wifi_start());
+  esp_wifi_start();
   Serial.println("WiFi stack ready.");
 
   // Create packet queue and mutex
   buffer_mutex = xSemaphoreCreateMutex();
-  packet_queue = xQueueCreate(128, sizeof(wifi_packet_t));
+  packet_queue = xQueueCreate(10, sizeof(wifi_packet_t*));
   if (buffer_mutex == NULL || packet_queue == NULL) {
     Serial.println("Failed to create queue/mutex!");
+    Serial.print("Buffer mutex is:"); Serial.println(buffer_mutex == NULL ? "NULL" : "OK");
+    Serial.print("Packet queue is:"); Serial.println(packet_queue == NULL ? "NULL" : "OK");
+    Serial.println("Please check your configuration and try again.");
     while(1) delay(1000);
   }
 
   delay(500);
+  
 
   // Start WiFi sniffing immediately
   wifi_sniffer_init();
@@ -217,6 +230,8 @@ void setup() {
 void loop() {
 #ifdef MONITOR
   packet_monitor_task();
+  feed_send_buffer();
+  bool ret = attempt_transaction(1000);
 #endif
-  delay(10); // Small delay to prevent watchdog issues
+  // delay(1000); // Small delay to prevent watchdog issues
 }

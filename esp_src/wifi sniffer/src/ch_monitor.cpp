@@ -49,30 +49,41 @@ void wifi_sniffer_packet_handler(void *buff, wifi_promiscuous_pkt_type_t type) {
   if (type != WIFI_PKT_MGMT && type != WIFI_PKT_DATA && type != WIFI_PKT_CTRL) {
     return;
   }
+  Serial.printf("Found packet of type %d\n", type);
   
   const wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t *)buff;
   const wifi_pkt_rx_ctrl_t *rx_ctrl = &ppkt->rx_ctrl;
-  
+
+  // Allocate packet dynamically to avoid stack overflow
+  wifi_packet_t *pkt = (wifi_packet_t*)malloc(sizeof(wifi_packet_t));
+  if (!pkt) {
+    // Out of memory, skip this packet
+    return;
+  }
+
   struct timeval tv;
   gettimeofday(&tv, NULL);
   
-  wifi_packet_t pkt;
-  pkt.ts_sec = tv.tv_sec;
-  pkt.ts_usec = tv.tv_usec;
-  pkt.length = rx_ctrl->sig_len;
+  pkt->ts_sec = tv.tv_sec;
+  pkt->ts_usec = tv.tv_usec;
+  pkt->length = rx_ctrl->sig_len;
   
-  if (pkt.length > MTU) {
-    pkt.length = MTU;
+  if (pkt->length > MTU) {
+    pkt->length = MTU;
   }
   
-  memcpy(pkt.payload, ppkt->payload, pkt.length);
+  memcpy(pkt->payload, ppkt->payload, pkt->length);
   
-  // Add to queue (non-blocking to avoid blocking the WiFi interrupt)
+  // Send pointer to queue instead of copying entire structure
   BaseType_t result = xQueueSendToBack(packet_queue, &pkt, 0);
-  if (result == pdTRUE) {
+  if (result != pdTRUE) {
+    // Queue full, free the allocated memory
+    free(pkt);
+    Serial.println("Packet not added to queue, queue full");
+  } else {
     packet_count++;
+    Serial.println("Packet added to queue number " + String(packet_count));
   }
-  // If queue is full, packet is dropped (this is normal under high traffic)
 }
 
 #endif // MONITOR

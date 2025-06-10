@@ -5,14 +5,31 @@
 
 // Protocol Constants
 #define SPI_MAGIC           0x69
-#define SPI_MAX_PAYLOAD     1024
+#define SPI_MAX_PAYLOAD     MTU
 #define SPI_HEADER_SIZE     8
 #define SPI_MAX_PACKET      (SPI_HEADER_SIZE + SPI_MAX_PAYLOAD)
+
+#define ESP32C3MINI
+
+#ifdef ESP32WROOM
 
 #define GPIO_MOSI         GPIO_NUM_23  // SPI MOSI pin
 #define GPIO_MISO         GPIO_NUM_19  // SPI MISO pin
 #define GPIO_SCLK         GPIO_NUM_18  // SPI SCLK pin
 #define GPIO_CS           GPIO_NUM_5   // SPI CS pin
+
+#endif
+
+#ifdef ESP32C3MINI
+
+#define VSPI_HOST    SPI2_HOST // Use SPI2 for ESP32-C3 Mini
+
+#define GPIO_MOSI           GPIO_NUM_6  // SPI MOSI pin
+#define GPIO_MISO           GPIO_NUM_5  // SPI MISO pin
+#define GPIO_SCLK           GPIO_NUM_4  // SPI SCLK pin
+#define GPIO_CS             GPIO_NUM_3  // SPI CS pin
+
+#endif
 
 // Packet Types
 typedef enum {
@@ -112,5 +129,25 @@ void set_buf(const char *data);
  * This function may be useful for congestion control or monitoring purposes
  */
 int spi_get_write_queue_count(void);
+
+
+/**
+ * @brief Feeds the send buffer with the next packet to be sent.
+ * This function should be called periodically to ensure that the SPI send buffer is filled
+ * with packets to be sent to the master device.
+ * 
+ * @return true if a packet was successfully added to the send buffer, false if no packets were available.
+ */
+bool feed_send_buffer(void);
+
+/**
+ * @brief Attempts to perform a transaction with the SPI master.
+ * This function should be called periodically to process incoming packets from the master
+ * and send outgoing packets to the master.
+ * 
+ * @return true if a transaction was successfully performed, false if the transaction timed out 
+ * or failed due to other reasons.
+ */
+bool attempt_transaction(int timeout_ms);
 
 #endif // SPI_PROTOCOL_INCL_H

@@ -34,8 +34,8 @@
 #define MTU                 1500
 #define QUEUE_SIZE          100
 
-#define DEVICE_ID           0       // 0=master, 1-127=slave ID
-#define WIFI_CHANNEL        7       // Channel this node will monitor (ignored on master)
+#define DEVICE_ID           64      // Unique device ID, 64-255 for slaves
+#define WIFI_CHANNEL        4       // Channel this node will monitor (ignored on master)
 #define I2C_MASTER_SDA      21      // I2C SDA pin (master only)
 #define I2C_MASTER_SCL      22      // I2C SCL pin (master only)
 #define I2C_SLAVE_SDA       21      // I2C SDA pin (slaves only)
@@ -101,13 +101,5 @@ uint8_t wifi_sniffer_get_channel(void);
 void packet_writer_task(void *pvParameter);
 void initialize_pcap_file(void);
 
-/**
- * Functions defined in i2c_line_comms.cpp
- */
-void i2c_slave_init(uint8_t address);
-void i2c_request_handler(void);
-void i2c_receive_handler(int byte_count);
-void store_packet_to_buffer(wifi_packet_t *pkt);
-void send_packet_to_master(wifi_packet_t *pkt);
 
 #endif // INCLUDE_H

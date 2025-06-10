@@ -3,8 +3,11 @@
 
 static const char *TAG = "ESP_SPI_PROTOCOL";
 
-static char *recvbuf = NULL, *sendbuf = NULL;
+WORD_ALIGNED_ATTR char *recvbuf = NULL, *sendbuf = NULL;
 char *queue_buffer = NULL; int queue_buffer_size = 0;
+bool send_buffer_ready = false;
+static spi_bus_config_t main_buscfg = {0};
+static spi_slave_interface_config_t main_slvcfg = {0};
 
 spi_packet_t create_packet(const char *data, int size, uint8_t seq, uint8_t type, uint32_t checksum) {
     spi_packet_t packet = {0};
@@ -21,6 +24,55 @@ spi_packet_t create_packet(const char *data, int size, uint8_t seq, uint8_t type
     return packet;
 }
 
+bool attempt_transaction(int timeout_ms) {
+    if (!recvbuf || !sendbuf) {
+        ESP_LOGE(TAG, "Buffers are not initialized");
+        return false;
+    }
+
+    spi_slave_transaction_t spi_transaction = {};
+    spi_transaction.length = SPI_MAX_PACKET * 8;
+    spi_transaction.rx_buffer = recvbuf;
+    spi_transaction.tx_buffer = sendbuf;
+    // wait for timeout ms
+    esp_err_t ret = spi_slave_transmit(VSPI_HOST, &spi_transaction, portMAX_DELAY);
+    // esp_err_t ret = spi_slave_transmit(VSPI_HOST, &spi_transaction, timeout_ms / portTICK_PERIOD_MS);
+    // if the transaction timed out, return false, else return true
+    if (ret == ESP_ERR_TIMEOUT) {
+        ESP_LOGW(TAG, "SPI transaction timed out");
+        return false;
+    } else if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "SPI transaction failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+    send_buffer_ready = false;
+    return true;
+}
+
+
+bool feed_send_buffer(void) {
+    if (send_buffer_ready) {
+        // ESP_LOGE(TAG, "Send buffer is NULL or already ready");
+        return false;
+    }
+    
+    if (queue_buffer_size == 0) {
+        ESP_LOGW(TAG, "No packets to send, send buffer remains empty");
+        return false;
+    }
+
+    // Copy the first packet from queue_buffer to sendbuf
+    memcpy(sendbuf, queue_buffer, SPI_MAX_PACKET);
+    queue_buffer_size--;
+    
+    // Shift the queue_buffer to remove the sent packet
+    memmove(queue_buffer, queue_buffer + SPI_MAX_PACKET, queue_buffer_size * SPI_MAX_PACKET);
+    send_buffer_ready = true;
+
+    ESP_LOGI(TAG, "Send buffer prepared with packet, size now: %d", queue_buffer_size);
+    return true;
+}
+
 esp_err_t spi_protocol_init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk, gpio_num_t cs) {
     spi_bus_config_t buscfg = {
         .mosi_io_num = mosi,
@@ -28,7 +80,7 @@ esp_err_t spi_protocol_init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk, g
         .sclk_io_num = sclk,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = SPI_MAX_PACKET
+        .max_transfer_sz = 0
     };
 
     spi_slave_interface_config_t slvcfg = {
@@ -40,20 +92,42 @@ esp_err_t spi_protocol_init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk, g
         .post_trans_cb = NULL
     };
 
+    main_buscfg = buscfg; main_slvcfg = slvcfg;
+
     gpio_set_pull_mode(GPIO_SCLK, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(GPIO_CS, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(GPIO_MOSI, (gpio_pull_mode_t)GPIO_PULLUP_ENABLE);
     gpio_set_pull_mode(GPIO_MISO, (gpio_pull_mode_t)GPIO_PULLUP_ENABLE);
 
-    esp_err_t ret = spi_slave_initialize(VSPI_HOST, &buscfg, &slvcfg, 1);
-    if (ret != ESP_OK) ESP_LOGE(TAG, "Failed to initialize SPI slave in VSPI mode: %s", esp_err_to_name(ret));
+    esp_err_t ret = spi_slave_initialize(VSPI_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "spi_slave_initialize failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
-    recvbuf = (char*)heap_caps_malloc(SPI_MAX_PACKET, MALLOC_CAP_DMA | MALLOC_CAP_8BIT),
-    sendbuf = (char*)heap_caps_malloc(SPI_MAX_PACKET, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-    
-    queue_buffer = (char *)calloc(SPI_MAX_PACKET, 100);
+    recvbuf = (char*)heap_caps_malloc(SPI_MAX_PACKET,
+                                        MALLOC_CAP_DMA);
+    sendbuf = (char*)heap_caps_malloc(SPI_MAX_PACKET,
+                                        MALLOC_CAP_DMA);
+    queue_buffer = (char*)calloc(100, SPI_MAX_PACKET);
 
-    if (!recvbuf || !sendbuf) ESP_LOGI(TAG, "Failed to initiate buffers\n");
+    if (!recvbuf || !sendbuf || !queue_buffer) {
+        ESP_LOGE(TAG,
+                "Out of memory: recv=%p send=%p queue=%p",
+                recvbuf, sendbuf, queue_buffer);
+        if (recvbuf)       heap_caps_free(recvbuf);
+        if (sendbuf)       heap_caps_free(sendbuf);
+        if (queue_buffer)  free(queue_buffer);
+        return ESP_ERR_NO_MEM;
+    }
+
+    memset(recvbuf,      0, SPI_MAX_PACKET);
+    memset(sendbuf,      0, SPI_MAX_PACKET);
+    memset(queue_buffer, 0, SPI_MAX_PACKET * 100);
+
+    ESP_LOGI(TAG,
+            "SPI init OK — recvbuf=%p sendbuf=%p queuebuf=%p",
+            recvbuf, sendbuf, queue_buffer);
     return ESP_OK;
 }
 
