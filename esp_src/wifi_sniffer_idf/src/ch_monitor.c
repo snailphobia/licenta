@@ -54,16 +54,27 @@ void wifi_sniffer_set_channel(uint8_t channel) {
   printf("Channel set to %d\n", channel);
 }
 
+uint8_t wifi_sniffer_get_channel() {
+  uint8_t channel = 0;
+  esp_err_t ret = esp_wifi_get_channel(&channel, NULL);
+  if (ret != ESP_OK) {
+    printf("Failed to get channel: %s\n", esp_err_to_name(ret));
+    return -1;
+  }
+  printf("Current channel: %d\n", channel);
+  return channel;
+}
+
 void wifi_sniffer_packet_handler(void *buff, wifi_promiscuous_pkt_type_t type) {
   // Capture all packet types for comprehensive monitoring
   if (type != WIFI_PKT_MGMT && type != WIFI_PKT_DATA && type != WIFI_PKT_CTRL) {
     return;
   }
 // Serial.printf("Found packet of type %d\n", type);
-  printf("Found packet of type %d\n", type);
-  printf("Excerpt: %02X %02X %02X %02X %02X %02X\n",
-         ((uint8_t*)buff)[0], ((uint8_t*)buff)[1], ((uint8_t*)buff)[2],
-         ((uint8_t*)buff)[3], ((uint8_t*)buff)[4], ((uint8_t*)buff)[5]);
+  // printf("Found packet of type %d\n", type);
+  // printf("Excerpt: %02X %02X %02X %02X %02X %02X\n",
+        //  ((uint8_t*)buff)[0], ((uint8_t*)buff)[1], ((uint8_t*)buff)[2],
+        //  ((uint8_t*)buff)[3], ((uint8_t*)buff)[4], ((uint8_t*)buff)[5]);
   const wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t *)buff;
   const wifi_pkt_rx_ctrl_t *rx_ctrl = &ppkt->rx_ctrl;
 

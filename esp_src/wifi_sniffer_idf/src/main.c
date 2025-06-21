@@ -28,109 +28,89 @@ static void print_packet_info(wifi_packet_t *pkt)
   //   Serial.println();
 }
 
-static void packet_monitor_task(void *pvParameters)
+static void packet_forwarding_task(void *pvParameters)
 {
   wifi_packet_t *pkt;
-  static unsigned long last_stats = 0;
+  // static unsigned long last_stats = 0;
   static uint32_t packets_this_second = 0;
-
-  if (xQueueReceive(packet_queue, &pkt, 0) == pdTRUE)
-  {
-    vTaskDelay(20 / portTICK_PERIOD_MS); // Simulate processing delay
-    if (!pkt)
-      return;
-
-    // … your safety checks, print_packet_info(), etc …
-    print_packet_info(pkt);
-    packets_this_second++;
-    // 1) Declare your SPI packet here:
-    spi_packet_t spi_pkt = {0};
-    spi_pkt.magic = SPI_MAGIC;
-    spi_pkt.type = SPI_DATA_PKT;
-    spi_pkt.seq = 0;
-
-    uint8_t *payload = spi_pkt.payload;
-    payload[0] = 0x02;
-    payload[1] = DEVICE_ID;
-    payload[2] = WIFI_CHANNEL;
-    payload[3] = (pkt->length >> 8) & 0xFF;
-    payload[4] = pkt->length & 0xFF;
-
-    memcpy(&payload[5], &pkt->ts_sec, 4);
-    memcpy(&payload[9], &pkt->ts_usec, 4);
-
-    uint16_t wifi_data_space = SPI_MAX_PAYLOAD - 13;
-    uint16_t copy_len =
-        pkt->length < wifi_data_space ? pkt->length : wifi_data_space;
-
-    if (copy_len > 0)
-    {
-      memcpy(&payload[13], pkt->payload, copy_len);
-      spi_pkt.payload_len = 13 + copy_len;
-    }
-    else
-    {
-      spi_pkt.payload_len = 13;
-    }
-
-    spi_pkt.checksum = 0;
-
-    // 2) Only call once, and pass a real address
-    // Serial.println("Adding to SPI queue…");
-    if (!spi_add_packet(&spi_pkt))
-    {
-      //   Serial.println("ERROR: SPI queue full or uninitialized");
-    }
-    else
-    {
-      //   Serial.println("Added to SPI queue");
-    }
-
-    free(pkt);
-  }
-
-  // Print statistics every second
-  // if (millis() - last_stats > 1000)
-  if (xTaskGetTickCount() - last_stats > pdMS_TO_TICKS(1000))
-  {
-    if (packets_this_second > 0)
-    {
-      //   Serial.printf("=== Stats: %d packets/sec, SPI queue: %d ===\n",
-      // packets_this_second, spi_get_write_queue_count());
-    }
-    packets_this_second = 0;
-    // last_stats = millis();
-    last_stats = xTaskGetTickCount();
-  }
 
   // Handle SPI commands from master (these come as structured packets)
   spi_packet_t received_pkt;
   while (true)
   {
-    if (!spi_read_packet(&received_pkt)) {
-      vTaskDelay(10 / portTICK_PERIOD_MS); // No packet available, wait a bit
-      continue; // Retry reading packet
+    {
+      if (xQueueReceive(packet_queue, &pkt, 0) == pdTRUE)
+      {
+        // vTaskDelay(20 / portTICK_PERIOD_MS); // Simulate processing delay
+        if (!pkt)
+          continue;
+        // ESP_LOGI("PACKET_FORWARDER", "Received packet: %u.%06u, len=%d bytes",
+        //  pkt->ts_sec, pkt->ts_usec, pkt->length);
+        // print_packet_info(pkt);
+        packets_this_second++;
+        spi_packet_t spi_pkt = {0};
+        spi_pkt.magic = SPI_MAGIC;
+        spi_pkt.type = SPI_DATA_PKT;
+        spi_pkt.seq = 0;
+        spi_pkt.id.channel = wifi_sniffer_get_channel();
+        spi_pkt.id.device_id = DEVICE_ID;
+        spi_pkt.id.wifi_packet_length = pkt->length;
+        spi_pkt.time.ts_sec = pkt->ts_sec;
+        spi_pkt.time.ts_usec = pkt->ts_usec;
+
+        uint8_t *payload = spi_pkt.payload;
+        // payload[0] = 0x02;
+        // payload[1] = DEVICE_ID;
+        // payload[2] = WIFI_CHANNEL;
+        // payload[3] = (pkt->length >> 8) & 0xFF;
+        // payload[4] = pkt->length & 0xFF;
+
+        // memcpy(&payload[5], &pkt->ts_sec, 4);
+        // memcpy(&payload[9], &pkt->ts_usec, 4);
+
+        uint16_t wifi_data_space = SPI_MAX_PAYLOAD;
+        uint16_t copy_len =
+            pkt->length < wifi_data_space ? pkt->length : wifi_data_space;
+
+        if (copy_len > 0)
+        {
+          memcpy(payload, pkt->payload, copy_len);
+          spi_pkt.payload_len = copy_len;
+        }
+        else
+        {
+          spi_pkt.payload_len = 0;
+        }
+
+        if (!spi_add_packet(&spi_pkt))
+          ESP_LOGI("PACKET_FORWARDER", "ERROR: SPI queue full or uninitialized");
+        else
+          ESP_LOGI("PACKET_FORWARDER", "Added to SPI queue");
+        free(pkt);
+      }
     }
-    // Extract command from the payload of the structured packet
+
+    if (!spi_read_packet(&received_pkt))
+    {
+      vTaskDelay(10 / portTICK_PERIOD_MS); // No packet available, wait a bit
+      continue;                            // Retry reading packet
+    }
+  
     uint8_t cmd_type = received_pkt.payload[0];
 
     switch (cmd_type)
     {
     case 0x03: // Channel change command
     {
-      uint8_t new_channel = received_pkt.payload[1];
-      //   Serial.printf("Master requested channel change to %d\n", new_channel);
-
+      uint8_t new_channel = received_pkt.id.channel;
       if (new_channel >= 1 && new_channel <= 13)
       {
         if (sniffer_active)
         {
           esp_wifi_set_promiscuous(false);
-          // delay(100);
-          vTaskDelay(100 / portTICK_PERIOD_MS); // Allow time for WiFi to stabilize
+          vTaskDelay(100 / portTICK_PERIOD_MS);
           wifi_sniffer_set_channel(new_channel);
           esp_wifi_set_promiscuous(true);
-          //   Serial.printf("Channel changed to %d\n", new_channel);
         }
       }
     }
@@ -143,39 +123,33 @@ static void packet_monitor_task(void *pvParameters)
       {
         wifi_sniffer_init();
         sniffer_active = true;
-        // Serial.println("Sniffer started by master");
+        ESP_LOGI("PACKET_FORWARDER", "Sniffer started by master");
       }
       else if (!should_start && sniffer_active)
       {
         esp_wifi_set_promiscuous(false);
         sniffer_active = false;
-        // Serial.println("Sniffer stopped by master");
+        ESP_LOGI("PACKET_FORWARDER", "Sniffer stopped by master");
       }
     }
     break;
 
     case 0x05: // Status request
     {
-      //   Serial.println("Master requested status");
-
-      // Create structured status response packet
       spi_packet_t status_pkt = {0};
       status_pkt.magic = SPI_MAGIC;
       status_pkt.type = SPI_SSTAT;       // Response type
       status_pkt.seq = received_pkt.seq; // Respond with same sequence
 
       // Prepare status response payload
-      status_pkt.payload[0] = 0x06; // Status response type
-      status_pkt.payload[1] = DEVICE_ID;
-      status_pkt.payload[2] = WIFI_CHANNEL;
-      status_pkt.payload[3] = sniffer_active ? 1 : 0;
-      status_pkt.payload[4] = (packet_count >> 24) & 0xFF;
-      status_pkt.payload[5] = (packet_count >> 16) & 0xFF;
-      status_pkt.payload[6] = (packet_count >> 8) & 0xFF;
-      status_pkt.payload[7] = packet_count & 0xFF;
-
-      status_pkt.payload_len = 8;
-      status_pkt.checksum = 0; // Will be calculated by SPI layer
+      status_pkt.id.channel = wifi_sniffer_get_channel();
+      status_pkt.id.device_id = DEVICE_ID;
+      status_pkt.id.wifi_packet_length = 0; // Not used in status
+      status_pkt.time.ts_sec =  time(NULL); // Current time in seconds
+      status_pkt.time.ts_usec = 0; // Microseconds not used in status
+      status_pkt.payload[0] = sniffer_active ? 1 : 0; // Sniffer active status
+      status_pkt.payload[1] = packets_this_second & 0xFF; // Packets this second (low byte)
+      status_pkt.payload[2] = (packets_this_second >> 8) & 0xFF; // Packets this second (high byte)
 
       spi_add_packet(&status_pkt);
     }
@@ -197,18 +171,7 @@ void app_main()
   //   Serial.begin(115200);
   //   delay(1000);
   vTaskDelay(1000 / portTICK_PERIOD_MS); // Allow time for serial to stabilize
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-  // set cpu frequency to 80MHz for stability
-  // esp_pm_config_esp32_t pm_config = {
-  //   .max_freq_mhz = 80,
-  //   .min_freq_mhz = 80,
-  //   .light_sleep_enable = false
-  // };
-  // esp_pm_configure(&pm_config);
-
-  //   Serial.println("\n=== ESP32 WiFi Packet Monitor ===");
-  //   Serial.printf("Device ID: %d, Channel: %d\n", DEVICE_ID, WIFI_CHANNEL);
-
+  // WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 #ifdef MONITOR
 
   // Initialize SPI protocol first
@@ -236,58 +199,41 @@ void app_main()
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-  // ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(20));
-  // ESP_ERROR_CHECK(esp_wifi_start());
   esp_wifi_start();
-  //   Serial.println("WiFi stack ready.");
 
   // Create packet queue and mutex
   buffer_mutex = xSemaphoreCreateMutex();
   packet_queue = xQueueCreate(10, sizeof(wifi_packet_t *));
   if (buffer_mutex == NULL || packet_queue == NULL)
   {
-    // Serial.println("Failed to create queue/mutex!");
-    // Serial.print("Buffer mutex is:"); Serial.println(buffer_mutex == NULL ? "NULL" : "OK");
-    // Serial.print("Packet queue is:"); Serial.println(packet_queue == NULL ? "NULL" : "OK");
-    // Serial.println("Please check your configuration and try again.");
-    // while(1) delay(1000);
     while (1)
       vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 
-  //   delay(500);
   vTaskDelay(500 / portTICK_PERIOD_MS); // Allow time for WiFi to stabilize
 
-  // Start WiFi sniffing immediately
   wifi_sniffer_init();
   sniffer_active = true;
 
-  // Restore power settings
-  // WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 1);
-  //   setCpuFrequencyMhz(160);
-  // esp_pm_config_esp32m_config_restore);
-
   printf("\n=== ESP32 WiFi Packet Monitor ===\n");
   xTaskCreatePinnedToCore(
-    spi_transaction_task,
-    "SPI_TRANSACTION_TASK",
-    4096 * 8,
-    NULL,
-    configMAX_PRIORITIES - 1,
-    NULL,
-    0);
+      spi_transaction_task,
+      "SPI_TRANSACTION_TASK",
+      4096 * 8,
+      NULL,
+      6,
+      NULL,
+      0);
   printf("\n=== SPI Transaction Task Started ===\n");
   xTaskCreatePinnedToCore(
-    packet_monitor_task,
-    "TRANSACTION_PROC_TASK",
-    4096 * 8,
-    NULL,
-    5,
-    NULL,    
-    0);
+      packet_forwarding_task,
+      "TRANSACTION_PROC_TASK",
+      4096 * 8,
+      NULL,
+      5,
+      NULL,
+      0);
   printf("\n=== Packet Monitor Task Started ===\n");
-  //   Serial.println("=== Packet monitoring started ===");
 
 #endif
 }
-

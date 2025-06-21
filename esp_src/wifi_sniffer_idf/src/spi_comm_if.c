@@ -3,19 +3,21 @@
 
 static const char *TAG = "ESP_SPI_PROTOCOL";
 
-WORD_ALIGNED_ATTR char *recvbuf = NULL, *sendbuf = NULL;
+char *recvbuf = NULL, *sendbuf = NULL;
 char *queue_buffer = NULL; int queue_buffer_size = 0;
 bool send_buffer_ready = false;
 static spi_bus_config_t main_buscfg = {0};
 static spi_slave_interface_config_t main_slvcfg = {0};
 
-spi_packet_t create_packet(const char *data, int size, uint8_t seq, uint8_t type, uint32_t checksum) {
+spi_packet_t create_packet(const char *data, int size, uint8_t seq, uint8_t type, uint8_t channel, uint8_t device_id) {
     spi_packet_t packet = {0};
     packet.magic = SPI_MAGIC;
     packet.type = type;
     packet.seq = seq;
     packet.payload_len = size;
-    packet.checksum = checksum;
+    packet.id.channel = channel;
+    packet.id.device_id = device_id;
+    packet.id.wifi_packet_length = (uint16_t)size;
     if (data && size > 0 && size <= SPI_MAX_PAYLOAD) {
         memcpy(packet.payload, data, size);
     } else {
@@ -34,9 +36,12 @@ bool attempt_transaction(int timeout_ms) {
     spi_transaction.length = SPI_MAX_PACKET * 8;
     spi_transaction.rx_buffer = recvbuf;
     spi_transaction.tx_buffer = sendbuf;
+    ESP_LOGI("SENDING", "Attempting SPI transaction with timeout %d ms, with buffer %02X%02X%02X%02X%02X%02X...", timeout_ms,
+             sendbuf[0], sendbuf[1], sendbuf[2],
+             sendbuf[3], sendbuf[4], sendbuf[5]);
     // wait for timeout ms
-    esp_err_t ret = spi_slave_transmit(VSPI_HOST, &spi_transaction, portMAX_DELAY);
-    // esp_err_t ret = spi_slave_transmit(VSPI_HOST, &spi_transaction, timeout_ms / portTICK_PERIOD_MS);
+    // esp_err_t ret = spi_slave_transmit(VSPI_HOST, &spi_transaction, portMAX_DELAY);
+    esp_err_t ret = spi_slave_transmit(VSPI_HOST, &spi_transaction, timeout_ms / portTICK_PERIOD_MS);
     // if the transaction timed out, return false, else return true
     if (ret == ESP_ERR_TIMEOUT) {
         ESP_LOGW(TAG, "SPI transaction timed out");
@@ -57,6 +62,11 @@ bool feed_send_buffer(void) {
     // Serial.printf("%02X%02X%02X%02X%02X%02X\n",
     //     sendbuf[0], sendbuf[1], sendbuf[2],
     //     sendbuf[3], sendbuf[4], sendbuf[5]);
+    // printf("Queue buffer size: %d; send buffer ready: %s\n",
+    //        queue_buffer_size, send_buffer_ready ? "true" : "false");
+    // printf("%02X %02X %02X %02X %02X %02X\n",
+    //        sendbuf[0], sendbuf[1], sendbuf[2],
+    //        sendbuf[3], sendbuf[4], sendbuf[5]);
     if (send_buffer_ready) {
         // ESP_LOGE(TAG, "Send buffer is NULL or already ready");
         return false;
@@ -82,30 +92,30 @@ bool feed_send_buffer(void) {
 void spi_transaction_task(void *pvParameters) {
     TickType_t last_wake_time;
     const TickType_t xFrequency = pdMS_TO_TICKS(100);
-    const TickType_t xProcessingDuration = pdMS_TO_TICKS(30);
+    const TickType_t xProcessingDuration = pdMS_TO_TICKS(10);
 
     
+    last_wake_time = xTaskGetTickCount();
     for (;;) {
-        last_wake_time = xTaskGetTickCount();
-        vTaskDelayUntil(&last_wake_time, xFrequency);
-        // Serial.println("SPI transaction task running...");
-        if (!send_buffer_ready) {
-            ESP_LOGW(TAG, "Send buffer not ready, skipping transaction");
-            continue;
-        }
+        // vTaskDelayUntil(&last_wake_time, xFrequency);
 
         TickType_t xProcessingStartTime = xTaskGetTickCount();
+        ESP_LOGI("DEBUG1", "Starting SPI transaction task at %lu ms", xProcessingStartTime * portTICK_PERIOD_MS);
         while ((xTaskGetTickCount() - xProcessingStartTime) < xProcessingDuration) {
+            ESP_LOGW(TAG, "Processing SPI transaction...");
             feed_send_buffer();
-            if (!attempt_transaction(10)) {
+            if (!attempt_transaction(0)) {
                 ESP_LOGW(TAG, "Transaction failed, retrying...");
             } else {
                 ESP_LOGI(TAG, "Transaction successful");
             }
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
-
+        ESP_LOGI("DEBUG2", "SPI transaction task processing cycle completed at %lu ms",
+                 xTaskGetTickCount() * portTICK_PERIOD_MS);
         // Serial.println("SPI transaction task completed processing cycle");
-        printf("SPI transaction task completed processing cycle at %lu ms\n", xTaskGetTickCount() * portTICK_PERIOD_MS);
+        // printf("SPI transaction task completed processing cycle at %lu ms\n", xTaskGetTickCount() * portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
     //delay(100);
 }
@@ -117,29 +127,32 @@ esp_err_t spi_protocol_init(gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk, g
         .sclk_io_num = sclk,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 0
+        .max_transfer_sz = 0,
     };
 
     spi_slave_interface_config_t slvcfg = {
         .spics_io_num = cs,
         .flags = 0,
-        .queue_size = 10,
+        .queue_size = 3,
         .mode = 0,
         .post_setup_cb = NULL,
-        .post_trans_cb = NULL
+        .post_trans_cb = NULL,
     };
 
     main_buscfg = buscfg; main_slvcfg = slvcfg;
 
-    gpio_set_pull_mode(GPIO_SCLK, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(GPIO_CS, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(GPIO_MOSI, (gpio_pull_mode_t)GPIO_PULLUP_ENABLE);
-    gpio_set_pull_mode(GPIO_MISO, (gpio_pull_mode_t)GPIO_PULLUP_ENABLE);
+    // set GPIO_SIG as output
+
+
+    // gpio_set_pull_mode(GPIO_CS, GPIO_PULLUP_ENABLE);
+    // gpio_set_pull_mode(GPIO_MOSI, GPIO_PULLDOWN_ONLY);
+    // gpio_set_pull_mode(GPIO_MISO, GPIO_PULLDOWN_ONLY);
 
     esp_err_t ret = spi_slave_initialize(VSPI_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "spi_slave_initialize failed: %s", esp_err_to_name(ret));
         return ret;
+
     }
 
     recvbuf = (char*)heap_caps_malloc(SPI_MAX_PACKET,
@@ -201,6 +214,10 @@ bool spi_add_packet(spi_packet_t *data) {
     if (data) {
         memcpy(queue_buffer + (queue_buffer_size * SPI_MAX_PACKET), data, SPI_MAX_PACKET);
         queue_buffer_size++;
+
+        ESP_LOGI(TAG, "DEBUG: Packet starts with: %02X %02X %02X %02X %02X %02X",
+                 data->payload[0], data->payload[1], data->payload[2],
+                 data->payload[3], data->payload[4], data->payload[5]);
         return true;
     } else {
         ESP_LOGE(TAG, "Data is NULL, cannot add packet");
@@ -267,7 +284,8 @@ void split_buffer_into_spi_packets(const char *buffer, int buffer_size) {
         if (packet_size > 0) {
             char packet[SPI_MAX_PACKET] = {0};
             memcpy(packet, buffer + offset, packet_size);
-            spi_packet_t spi_packet = create_packet(packet, packet_size, i, SPI_DATA_PKT, 0); // Assuming checksum is 0 for simplicity
+            spi_packet_t spi_packet = create_packet(packet, packet_size, i, SPI_DATA_PKT, 
+                                                    WIFI_CHANNEL, DEVICE_ID);
             spi_add_packet(&spi_packet);
         }
     }

@@ -27,7 +27,8 @@
 
 // ensure FreeRTOS is using time slicing and priority scheduling
 #define configUSE_PREEMPTION    1
-#define configUSE_TIME_SLICING  1
+#undef configUSE_TIME_SLICING
+#define configUSE_TIME_SLICING  0
 
 // #define COMM
 #define MONITOR
@@ -36,7 +37,7 @@
 #define QUEUE_SIZE          100
 
 #define DEVICE_ID           64      // Unique device ID, 64-255 for slaves
-#define WIFI_CHANNEL        3       // Channel this node will monitor (ignored on master)
+#define WIFI_CHANNEL        4       // Channel this node will monitor (ignored on master)
 #define I2C_MASTER_SDA      21      // I2C SDA pin (master only)
 #define I2C_MASTER_SCL      22      // I2C SCL pin (master only)
 #define I2C_SLAVE_SDA       21      // I2C SDA pin (slaves only)

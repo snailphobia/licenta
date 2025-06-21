@@ -6,7 +6,7 @@
 // Protocol Constants
 #define SPI_MAGIC           0x69
 #define SPI_MAX_PAYLOAD     MTU
-#define SPI_HEADER_SIZE     8
+#define SPI_HEADER_SIZE     16
 #define SPI_MAX_PACKET      (SPI_HEADER_SIZE + SPI_MAX_PAYLOAD)
 
 #define ESP32C3MINI
@@ -24,10 +24,16 @@
 
 #define VSPI_HOST    SPI2_HOST // Use SPI2 for ESP32-C3 Mini
 
-#define GPIO_MOSI           GPIO_NUM_6  // SPI MOSI pin
+// #define GPIO_MOSI           GPIO_NUM_6  // SPI MOSI pin
+// #define GPIO_MISO           GPIO_NUM_5  // SPI MISO pin
+// #define GPIO_SCLK           GPIO_NUM_4  // SPI SCLK pin
+// #define GPIO_CS             GPIO_NUM_7  // SPI CS pin
+#define GPIO_MOSI           GPIO_NUM_7  // SPI MOSI pin
+#define GPIO_SCLK           GPIO_NUM_6  // SPI SCLK pin
 #define GPIO_MISO           GPIO_NUM_5  // SPI MISO pin
-#define GPIO_SCLK           GPIO_NUM_4  // SPI SCLK pin
-#define GPIO_CS             GPIO_NUM_3  // SPI CS pin
+#define GPIO_CS             GPIO_NUM_4  // SPI CS pin
+
+#define GPIO_SIG            GPIO_NUM_10 // signal pin for spi ready
 
 #endif
 
@@ -50,8 +56,16 @@ typedef struct __attribute__((packed)) {
     uint8_t type;               // Packet type
     uint8_t seq;                // Sequence number
     uint8_t payload_len;        // Payload length
-    uint32_t checksum;          // Simple checksum
-    uint8_t payload[SPI_MAX_PAYLOAD];
+    struct {
+        uint8_t channel; // Channel number
+        uint8_t device_id; // Device ID in SPI line
+        uint16_t wifi_packet_length; // Length of the SPI packet
+    } id;
+    struct {
+        uint32_t ts_sec; // Timestamp seconds
+        uint32_t ts_usec; // Timestamp microseconds
+    } time;
+    uint8_t payload[SPI_MAX_PAYLOAD]; // exclusively for wifi packets
 } spi_packet_t;
 
 // Public API Function declarations
@@ -63,10 +77,11 @@ typedef struct __attribute__((packed)) {
  * @param size Size of the data to be included in the packet.
  * @param seq Sequence number for the packet.
  * @param type Type of the packet (e.g., MASTER_CONTINUE_DATA, SPI_START_PKT).
- * @param checksum Checksum for the packet data.
+ * @param channel Channel number for the packet.
+ * @param device_id Device ID of the SPI slave.
  * @return spi_packet_t The created SPI packet.
  */
-spi_packet_t create_packet(const char *data, int size, uint8_t seq, uint8_t type, uint32_t checksum);
+spi_packet_t create_packet(const char *data, int size, uint8_t seq, uint8_t type, uint8_t channel, uint8_t device_id);
 
 /**
  * @brief Initializes the SPI protocol slave.
