@@ -1,7 +1,7 @@
 #include "../include/include.h"
 #include "../include/spi_protocol_incl.h"
 #include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
+// #include "soc/rtc_cntl_reg.h"
 
 // Global variable definitions
 QueueHandle_t packet_queue = NULL;
