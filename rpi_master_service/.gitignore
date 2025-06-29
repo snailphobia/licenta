@@ -1,0 +1,4 @@
+captures/*
+filtered_captures/*
+logs/*
+pcap_repository/*

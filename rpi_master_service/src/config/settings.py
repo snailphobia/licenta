@@ -9,14 +9,14 @@ class SPIConfig:
     """SPI configuration settings."""
     bus: int = 0  # SPI bus number (0 or 1)
     device: int = 0  # SPI device number (CE pin)
-    max_speed_hz: int = 250000 # 250 KHz
+    max_speed_hz: int = 2000000
     mode: int = 0  # SPI mode (0-3)
     bits_per_word: int = 8
     
     # Protocol constants matching ESP32
     magic: int = 0x69
     max_payload: int = 1500
-    header_size: int = 8
+    header_size: int = 16  # Updated from 8 to 16 bytes
     max_packet: int = header_size + max_payload
 
 @dataclass

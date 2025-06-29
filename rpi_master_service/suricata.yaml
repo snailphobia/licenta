@@ -1,0 +1,116 @@
+%YAML 1.1
+---
+
+# Suricata configuration for PCAP analysis
+# Internal network: 10.41.0.0/16
+
+vars:
+  address-groups:
+    # HOME_NET: "[10.41.0.0/16]"
+    HOME_NET: "[192.168.1.0/24]"
+    EXTERNAL_NET: "!$HOME_NET"
+
+    # DHCP_SERVERS: "[10.41.0.1,10.41.0.254]"
+    DHCP_SERVERS: "[1.1.1.1,8.8.8.8]"
+
+    HTTP_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    SQL_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$HOME_NET"
+    TELNET_SERVERS: "$HOME_NET"
+    DC_SERVERS: "$HOME_NET"
+    
+  port-groups:
+    HTTP_PORTS: "[80,8080]"
+    HTTPS_PORTS: "[443,8443]"
+    SSH_PORTS: 22
+    DNS_PORTS: 53
+    DHCP_PORTS: "[67,68]"
+    ORACLE_PORTS: "[1521,1522,1526]"
+    SHELLCODE_PORTS: "!80"
+
+# Enable ARP detection
+app-layer:
+  protocols:
+    http:
+      enabled: yes
+    dns:
+      tcp:
+        enabled: yes
+      udp:
+        enabled: yes
+    tls:
+      enabled: yes
+    # Enable ARP detection
+    arp:
+      detection-enabled: yes
+
+# Output configuration
+outputs:
+  - fast:
+      enabled: yes
+      filename: fast.log
+      append: yes
+
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert:
+            payload: yes
+            packet: yes
+        - http
+        - dns
+        - tls
+        - flow
+
+# Logging
+logging:
+  default-log-level: notice
+  default-output-filter:
+  outputs:
+  - console:
+      enabled: yes
+  - file:
+      enabled: yes
+      level: info
+      filename: suricata.log
+
+# Rules configuration
+default-rule-path: /var/lib/suricata/rules
+default-log-dir: /home/barbonis/licenta/rpi_master_service/logs
+
+rule-files:
+  - /var/lib/suricata/rules/suricata.rules
+
+# Threading for PCAP analysis
+threading:
+  set-cpu-affinity: no
+  detect-thread-ratio: 1.0
+
+# Engine settings
+engine:
+  promisc: false
+  checksum-validation: none
+
+# Detection settings
+detect:
+  profile: medium
+  
+# Stream settings
+stream:
+  memcap: 64mb
+  checksum-validation: no
+
+# Flow settings  
+flow:
+  memcap: 128mb
+  hash-size: 65536
+
+# Classification and reference files
+classification-file: /etc/suricata/classification.config
+reference-config-file: /etc/suricata/reference.config
+
+# Host settings
+host-mode: auto

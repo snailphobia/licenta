@@ -26,15 +26,15 @@ def signal_handler(signum, frame):
     spi_service.stop()
     sys.exit(0)
 
-def on_data_packet(pkt_type, seq, payload):
+def on_data_packet(pkt_type, seq, payload, metadata):
     """Handle received data packets."""
-    logger.info(f"Received data packet seq {seq}: {payload.decode('utf-8', errors='ignore')[:50]}...")
+    logger.info(f"Received data packet seq {seq} from device {metadata['device_id']} on channel {metadata['channel']}: {payload.decode('utf-8', errors='ignore')[:50]}...")
     # Send ACK back
     spi_service.send_ack()
 
-def on_status_packet(pkt_type, seq, payload):
+def on_status_packet(pkt_type, seq, payload, metadata):
     """Handle status packets."""
-    logger.info(f"Received status packet seq {seq}: {payload.hex()}")
+    logger.info(f"Received status packet seq {seq} from device {metadata['device_id']} on channel {metadata['channel']}: {payload.hex()}")
 
 def main():
     """Main application function."""
@@ -67,7 +67,7 @@ def main():
             # Example: Send periodic continue data commands
             time.sleep(5)
             spi_service.send_continue_data()
-            
+
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
     except Exception as e:

@@ -5,7 +5,7 @@ from src.config.settings import config
 
 spi = spidev.SpiDev()
 spi.open(config.spi.bus, config.spi.device)
-spi.max_speed_hz = config.spi.max_speed_hz
+spi.max_speed_hz = 2000000
 
 def read_packet():
     buffer = [0x42] * config.spi.max_packet
@@ -16,3 +16,4 @@ def read_packet():
 while True:
     input()
     read_packet()
+    

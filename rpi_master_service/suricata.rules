@@ -1,0 +1,84 @@
+# WiFi Security Detection Rules - Parsing Error Free Version
+
+# =============================================================================
+# DENIAL OF SERVICE DETECTION
+# =============================================================================
+
+alert udp any 68 -> any 67 (msg:"ATTACK High Rate of DHCP Discovers - Possible Deauth Flood"; \
+    content:"|01 01 06 00|"; offset:242; depth:4; \
+    threshold:type threshold,track by_dst,count 10,seconds 10; \
+    sid:1000001; rev:1; classtype:denial-of-service;)
+
+# =============================================================================
+# MAN-IN-THE-MIDDLE DETECTION  
+# =============================================================================
+
+alert udp any 67 -> $HOME_NET 68 (msg:"POLICY Rogue DHCP Server - Possible Evil Twin"; \
+    content:"|02 01 06 00|"; offset:242; depth:4; \
+    sid:1000002; rev:1; classtype:policy-violation;)
+
+# ARP spoofing detection removed (Suricata does not support 'arp' protocol in rules)
+
+# =============================================================================
+# RECONNAISSANCE DETECTION
+# =============================================================================
+
+alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"SCAN TCP Port Scan Detected"; \
+    flow:to_server; tcp.flags:S,12; \
+    threshold:type threshold,track by_src,count 20,seconds 10; \
+    sid:1000004; rev:1; classtype:attempted-recon;)
+
+alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"SCAN ICMP Ping Sweep Detected"; \
+    itype:8; \
+    threshold:type threshold,track by_src,count 15,seconds 10; \
+    sid:1000005; rev:1; classtype:attempted-recon;)
+
+# =============================================================================
+# SPYWARE / C2 COMMUNICATION
+# =============================================================================
+
+alert dns $HOME_NET any -> any 53 (msg:"TROJAN Known C2 Domain bad-c2-server.com"; \
+    dns.query; content:"bad-c2-server.com"; nocase; \
+    sid:1000006; rev:1; classtype:trojan-activity;)
+
+alert dns $HOME_NET any -> any 53 (msg:"TROJAN Known C2 Domain another-evil.net"; \
+    dns.query; content:"another-evil.net"; nocase; \
+    sid:1000007; rev:1; classtype:trojan-activity;)
+
+alert dns $HOME_NET any -> any 53 (msg:"TROJAN Potential DGA - Long DNS Query"; \
+    dns.query; pcre:"/.{35,}/"; \
+    sid:1000008; rev:1; classtype:trojan-activity;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET ![80,443,8080] (msg:"TROJAN Potential C2 Beaconing"; \
+    flow:to_server,established; \
+    threshold:type threshold,track by_src,count 5,seconds 300; \
+    sid:1000009; rev:1; classtype:trojan-activity;)
+
+alert dns $HOME_NET any -> any 53 (msg:"TROJAN Potential DNS Tunneling - Large Query"; \
+    dns.query; pcre:"/.{250,}/"; \
+    sid:1000010; rev:1; classtype:trojan-activity;)
+
+# =============================================================================
+# ADDITIONAL NETWORK SECURITY RULES
+# =============================================================================
+
+alert dns $HOME_NET any -> any 53 (msg:"TROJAN Suspicious TLD Query"; \
+    dns.query; pcre:"/\.(tk|ml|ga|cf|bit|pw)$/i"; \
+    sid:1000011; rev:1; classtype:trojan-activity;)
+
+alert dns $HOME_NET any -> any 53 (msg:"TROJAN High Volume DNS Queries"; \
+    dns.query; content:"."; \
+    threshold:type threshold,track by_src,count 50,seconds 60; \
+    sid:1000012; rev:1; classtype:trojan-activity;)
+
+alert tcp $HOME_NET any -> $EXTERNAL_NET ![443,8443] (msg:"POLICY Connection to Non-Standard HTTPS Port"; \
+    flow:to_server,established; content:"|16 03|"; depth:2; \
+    sid:1000013; rev:1; classtype:policy-violation;)
+
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"TROJAN Large HTTP POST - Potential Exfiltration"; \
+    http.method; content:"POST"; http.request_body; pcre:"/.{2048,}/"; \
+    sid:1000014; rev:1; classtype:trojan-activity;)
+
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"TROJAN Base64 Data in HTTP"; \
+    http.request_body; pcre:"/[A-Za-z0-9+\/]{100,}={0,2}/"; \
+    sid:1000015; rev:1; classtype:trojan-activity;)
