@@ -2,3 +2,6 @@ captures/*
 filtered_captures/*
 logs/*
 pcap_repository/*
+layer3_captures/*
+__pycache__/*
+__pycache__/
